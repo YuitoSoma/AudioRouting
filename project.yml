@@ -1,0 +1,60 @@
+name: AudioRouting
+
+options:
+  bundleIdPrefix: local.audiorouting
+  deploymentTarget:
+    macOS: "14.2"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    ARCHS: arm64
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # Provisional: bundle ID and signing wait on the distribution decision.
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    DEVELOPMENT_TEAM: ""
+
+targets:
+  AudioRouting:
+    type: application
+    platform: macOS
+    sources:
+      - AudioRouting
+    info:
+      path: AudioRouting/Info.plist
+      properties:
+        CFBundleDisplayName: AudioRouting
+        LSUIElement: true
+        LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
+        NSAudioCaptureUsageDescription: "AudioRouting はアプリごとの音声を指定した出力デバイスへ送るために、システム音声へのアクセスを使います。"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.audiorouting.AudioRouting
+        ENABLE_HARDENED_RUNTIME: false
+
+  AudioRoutingTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - AudioRoutingTests
+    dependencies:
+      - target: AudioRouting
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.audiorouting.AudioRoutingTests
+        GENERATE_INFOPLIST_FILE: true
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/AudioRouting.app/Contents/MacOS/AudioRouting"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
+schemes:
+  AudioRouting:
+    build:
+      targets:
+        AudioRouting: all
+        AudioRoutingTests: [test]
+    test:
+      targets:
+        - AudioRoutingTests
