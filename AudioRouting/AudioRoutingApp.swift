@@ -27,6 +27,10 @@ final class AppModel {
             permission: TCCAudioCapturePermission(),
             store: UserDefaultsSettingsStore()
         )
+        if let reportPath = SelfTest.requestedReportPath {
+            SelfTest.runAndQuit(reportPath: reportPath)
+            return
+        }
         routingManager.reconcile()
 
         terminateObserver = NotificationCenter.default.addObserver(

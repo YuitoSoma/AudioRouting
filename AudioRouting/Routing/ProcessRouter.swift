@@ -18,6 +18,8 @@ final class ProcessRouter: ActiveAudioRoute {
     private(set) var tapID = AudioObjectID(kAudioObjectUnknown)
     private(set) var aggregateID = AudioObjectID(kAudioObjectUnknown)
     private var ioProcID: AudioDeviceIOProcID?
+    /// Peak level of the audio written to the device, for diagnostics.
+    let meter = PeakMeter()
     private let ioQueue = DispatchQueue(label: "local.audiorouting.ioproc", qos: .userInteractive)
     private let logger = Logger(subsystem: "local.audiorouting", category: "ProcessRouter")
 
@@ -61,8 +63,10 @@ final class ProcessRouter: ActiveAudioRoute {
                   "AudioHardwareCreateAggregateDevice")
 
         let skipInputBuffers = Self.inputStreamCount(of: device.objectID)
+        let meter = meter
         try check(AudioDeviceCreateIOProcIDWithBlock(&ioProcID, aggregateID, ioQueue) { _, input, _, output, _ in
             AudioBufferCopy.copy(from: input, to: output, skipInputBuffers: skipInputBuffers)
+            meter.record(AudioBufferCopy.peak(of: output))
         }, "AudioDeviceCreateIOProcIDWithBlock")
 
         try check(AudioDeviceStart(aggregateID, ioProcID), "AudioDeviceStart")
@@ -95,6 +99,22 @@ final class ProcessRouter: ActiveAudioRoute {
             device, kAudioDevicePropertyStreams, scope: kAudioObjectPropertyScopeInput
         )) ?? []
         return streams.count
+    }
+}
+
+/// Highest absolute sample level seen since the last `reset()`. Written from the IO thread and read
+/// from the main thread without a lock: an aligned Float32 store is atomic on arm64, and a slightly
+/// stale value is fine for a level indicator.
+final class PeakMeter: @unchecked Sendable {
+    private let storage = UnsafeMutablePointer<Float32>.allocate(capacity: 1)
+
+    init() { storage.initialize(to: 0) }
+    deinit { storage.deallocate() }
+
+    var peak: Float32 { storage.pointee }
+    func reset() { storage.pointee = 0 }
+    func record(_ level: Float32) {
+        if level > storage.pointee { storage.pointee = level }
     }
 }
 

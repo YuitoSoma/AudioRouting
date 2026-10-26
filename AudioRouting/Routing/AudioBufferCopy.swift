@@ -45,6 +45,18 @@ enum AudioBufferCopy {
         }
     }
 
+    /// Highest absolute Float32 sample across all buffers. Real-time safe.
+    static func peak(of list: UnsafeMutablePointer<AudioBufferList>) -> Float32 {
+        var peak: Float32 = 0
+        for buffer in UnsafeMutableAudioBufferListPointer(list) {
+            guard let data = buffer.mData?.assumingMemoryBound(to: Float32.self) else { continue }
+            for index in 0..<Int(buffer.mDataByteSize) / MemoryLayout<Float32>.size {
+                peak = max(peak, abs(data[index]))
+            }
+        }
+        return peak
+    }
+
     private static func channelCount(_ buffers: UnsafeMutableAudioBufferListPointer, skipping: Int) -> Int {
         var count = 0
         for index in skipping..<max(skipping, buffers.count) {

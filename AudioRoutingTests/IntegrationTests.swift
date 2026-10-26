@@ -64,8 +64,8 @@ final class IntegrationTests: XCTestCase {
               let device = system.outputDevices().first(where: { $0.uid == defaultUID })
         else { throw XCTSkip("出力デバイスがないためスキップ") }
 
-        let baselineTaps = Self.tapCount()
-        let baselineAggregates = Self.ownAggregateCount()
+        let baselineTaps = AudioDiagnostics.tapCount()
+        let baselineAggregates = AudioDiagnostics.ownAggregateCount()
 
         let process = try await startAfplay(system: system)
 
@@ -73,28 +73,30 @@ final class IntegrationTests: XCTestCase {
         self.router = router
         XCTAssertNotEqual(router.tapID, AudioObjectID(kAudioObjectUnknown))
         XCTAssertNotEqual(router.aggregateID, AudioObjectID(kAudioObjectUnknown))
-        XCTAssertEqual(Self.tapCount(), baselineTaps + 1)
-        XCTAssertEqual(Self.ownAggregateCount(), baselineAggregates + 1)
+        XCTAssertEqual(AudioDiagnostics.tapCount(), baselineTaps + 1)
+        XCTAssertEqual(AudioDiagnostics.ownAggregateCount(), baselineAggregates + 1)
 
         try await Task.sleep(for: .milliseconds(500))
         let running: UInt32 = try CoreAudioProperty.value(
             router.aggregateID, kAudioDevicePropertyDeviceIsRunningSomewhere, initial: 0
         )
         XCTAssertEqual(running, 1, "aggregate device IO should be running")
+        let gotSignal = await AudioDiagnostics.waitUntil(seconds: 3) { router.meter.peak > 0.0005 }
+        XCTAssertTrue(gotSignal, "tapped audio should reach the device (peak \(router.meter.peak))")
 
         router.stop()
         router.stop() // second stop is a no-op
 
-        XCTAssertEqual(Self.tapCount(), baselineTaps, "process tap leaked")
-        XCTAssertEqual(Self.ownAggregateCount(), baselineAggregates, "aggregate device leaked")
+        XCTAssertEqual(AudioDiagnostics.tapCount(), baselineTaps, "process tap leaked")
+        XCTAssertEqual(AudioDiagnostics.ownAggregateCount(), baselineAggregates, "aggregate device leaked")
     }
 
     func testRouterToMissingDeviceLeavesNothingBehind() throws {
         guard TCCAudioCapturePermission().status == .authorized else {
             throw XCTSkip("「システム音声の録音」が許可されていないためスキップ")
         }
-        let baselineTaps = Self.tapCount()
-        let baselineAggregates = Self.ownAggregateCount()
+        let baselineTaps = AudioDiagnostics.tapCount()
+        let baselineAggregates = AudioDiagnostics.ownAggregateCount()
         let missingDevice = AudioOutputDevice(objectID: 0, uid: "local.audiorouting.no-such-device", name: "none")
 
         // Whether the HAL refuses this or not, nothing may be left behind afterwards.
@@ -102,8 +104,8 @@ final class IntegrationTests: XCTestCase {
             router.stop()
         }
 
-        XCTAssertEqual(Self.tapCount(), baselineTaps)
-        XCTAssertEqual(Self.ownAggregateCount(), baselineAggregates)
+        XCTAssertEqual(AudioDiagnostics.tapCount(), baselineTaps)
+        XCTAssertEqual(AudioDiagnostics.ownAggregateCount(), baselineAggregates)
     }
 
     // MARK: Helpers
@@ -119,13 +121,10 @@ final class IntegrationTests: XCTestCase {
 
     private func startAfplay(system: CoreAudioSystem) async throws -> AudioProcess {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("audiorouting-tone-\(UUID().uuidString).wav")
-        try Self.toneWAV(seconds: 5).write(to: url)
+        try AudioDiagnostics.toneWAV(seconds: 5).write(to: url)
         toneURL = url
 
-        let player = Process()
-        player.executableURL = URL(fileURLWithPath: "/usr/bin/afplay")
-        player.arguments = ["-v", "0.05", url.path]
-        try player.run()
+        let player = try AudioDiagnostics.startAfplay(url)
         self.player = player
 
         for _ in 0..<50 {
@@ -135,38 +134,5 @@ final class IntegrationTests: XCTestCase {
             try await Task.sleep(for: .milliseconds(100))
         }
         throw XCTSkip("afplay の音声プロセスが見つからないためスキップ")
-    }
-
-    private static func tapCount() -> Int {
-        let taps: [AudioObjectID] = (try? CoreAudioProperty.array(
-            CoreAudioProperty.systemObject, kAudioHardwarePropertyTapList
-        )) ?? []
-        return taps.count
-    }
-
-    private static func ownAggregateCount() -> Int {
-        let devices: [AudioObjectID] = (try? CoreAudioProperty.array(
-            CoreAudioProperty.systemObject, kAudioHardwarePropertyDevices
-        )) ?? []
-        return devices.filter {
-            ((try? CoreAudioProperty.string($0, kAudioDevicePropertyDeviceUID)) ?? "")
-                .hasPrefix(AudioRoutingConstants.aggregateUIDPrefix)
-        }.count
-    }
-
-    /// 16-bit mono 440 Hz sine, quiet.
-    private static func toneWAV(seconds: Int, sampleRate: Int = 44_100) -> Data {
-        let frames = seconds * sampleRate
-        var data = Data()
-        func append<T: FixedWidthInteger>(_ value: T) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
-        data.append(contentsOf: Array("RIFF".utf8)); append(UInt32(36 + frames * 2))
-        data.append(contentsOf: Array("WAVEfmt ".utf8)); append(UInt32(16))
-        append(UInt16(1)); append(UInt16(1)); append(UInt32(sampleRate)); append(UInt32(sampleRate * 2))
-        append(UInt16(2)); append(UInt16(16))
-        data.append(contentsOf: Array("data".utf8)); append(UInt32(frames * 2))
-        for frame in 0..<frames {
-            append(Int16(sin(Double(frame) * 2 * .pi * 440 / Double(sampleRate)) * 3000))
-        }
-        return data
     }
 }

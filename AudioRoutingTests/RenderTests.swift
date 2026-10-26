@@ -117,4 +117,16 @@ final class RenderTests: XCTestCase {
         XCTAssertEqual(output.sample(buffer: 0, frame: 0, channel: 0), 0)
         XCTAssertEqual(output.sample(buffer: 0, frame: 1, channel: 1), 0)
     }
+
+    func testPeakIsHighestAbsoluteSampleAcrossBuffers() {
+        let output = Buffers(channelsPerBuffer: [1, 2], frames: 3) { buffer, frame, channel in
+            buffer == 1 && frame == 2 && channel == 1 ? -0.75 : 0.25
+        }
+        XCTAssertEqual(AudioBufferCopy.peak(of: output.list.unsafeMutablePointer), 0.75)
+    }
+
+    func testPeakOfSilenceIsZero() {
+        let output = Buffers(channelsPerBuffer: [2], frames: 4)
+        XCTAssertEqual(AudioBufferCopy.peak(of: output.list.unsafeMutablePointer), 0)
+    }
 }
