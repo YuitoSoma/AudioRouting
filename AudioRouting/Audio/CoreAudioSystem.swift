@@ -72,13 +72,21 @@ final class CoreAudioSystem: AudioSystem {
     }
 }
 
-/// Watches the process list, and each process's "is running output" flag, re-registering
-/// per-process listeners whenever the list changes.
+/// Watches the process list, and each process's running state, re-registering per-process
+/// listeners whenever the list changes.
 @MainActor
 private final class ProcessListObserver {
+    /// A new process object usually appears before it starts output, so its flags must be watched.
+    /// `IsRunningOutput` alone is not enough: on macOS 27 its listener never fires when playback
+    /// starts, while `IsRunning` does (observed with afplay).
+    private static let perProcessSelectors = [
+        kAudioProcessPropertyIsRunning,
+        kAudioProcessPropertyIsRunningOutput,
+    ]
+
     private let handler: @MainActor () -> Void
     private var listObservation: AudioObservation?
-    private var perProcess: [AudioObjectID: AudioObservation] = [:]
+    private var perProcess: [AudioObjectID: [AudioObservation]] = [:]
 
     init(handler: @escaping @MainActor () -> Void) {
         self.handler = handler
@@ -94,7 +102,7 @@ private final class ProcessListObserver {
     func stop() {
         listObservation?.invalidate()
         listObservation = nil
-        perProcess.values.forEach { $0.invalidate() }
+        perProcess.values.joined().forEach { $0.invalidate() }
         perProcess.removeAll()
     }
 
@@ -103,13 +111,15 @@ private final class ProcessListObserver {
             CoreAudioProperty.systemObject, kAudioHardwarePropertyProcessObjectList
         )) ?? []
         let current = Set(ids)
-        for (id, observation) in perProcess where !current.contains(id) {
-            observation.invalidate()
+        for (id, observations) in perProcess where !current.contains(id) {
+            observations.forEach { $0.invalidate() }
             perProcess[id] = nil
         }
         for id in current where perProcess[id] == nil {
-            perProcess[id] = CoreAudioProperty.listen(id, kAudioProcessPropertyIsRunningOutput) { [weak self] in
-                self?.handler()
+            perProcess[id] = Self.perProcessSelectors.compactMap { selector in
+                CoreAudioProperty.listen(id, selector) { [weak self] in
+                    self?.handler()
+                }
             }
         }
     }

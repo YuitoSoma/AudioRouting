@@ -27,6 +27,8 @@ targets:
       path: AudioRouting/Info.plist
       properties:
         CFBundleDisplayName: AudioRouting
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSUIElement: true
         LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
         NSAudioCaptureUsageDescription: "AudioRouting はアプリごとの音声を指定した出力デバイスへ送るために、システム音声へのアクセスを使います。"

@@ -22,6 +22,39 @@ final class IntegrationTests: XCTestCase {
         if let toneURL { try? FileManager.default.removeItem(at: toneURL) }
     }
 
+    // MARK: Without permission (device and process lists need no capture permission)
+
+    func testCoreAudioSystemListsDefaultOutputDevice() throws {
+        let system = CoreAudioSystem()
+        let devices = system.outputDevices()
+        guard let defaultUID = system.defaultOutputDeviceUID() else { throw XCTSkip("出力デバイスがないためスキップ") }
+
+        XCTAssertTrue(devices.contains { $0.uid == defaultUID }, "default output \(defaultUID) not in \(devices.map(\.uid))")
+        XCTAssertFalse(devices.contains { $0.uid.hasPrefix(AudioRoutingConstants.aggregateUIDPrefix) })
+        XCTAssertTrue(devices.allSatisfy { !$0.name.isEmpty })
+    }
+
+    func testProcessMonitorSeesAfplayStartAndStopPlaying() async throws {
+        let system = CoreAudioSystem()
+        guard system.defaultOutputDeviceUID() != nil else { throw XCTSkip("出力デバイスがないためスキップ") }
+        let monitor = AudioProcessMonitor(system: system)
+        var changes = 0
+        monitor.onChange = { changes += 1 }
+
+        let process = try await startAfplay(system: system)
+        let pid = process.pid
+        try await waitUntil("afplay reported as playing") {
+            monitor.processes.contains { $0.pid == pid && $0.isRunningOutput }
+        }
+        XCTAssertGreaterThan(changes, 0, "process listener should have fired")
+
+        player?.terminate()
+        player?.waitUntilExit()
+        try await waitUntil("afplay gone or stopped") {
+            !monitor.processes.contains { $0.pid == pid && $0.isRunningOutput }
+        }
+    }
+
     func testRoutesAfplayThroughTapAndAggregateAndCleansUp() async throws {
         guard TCCAudioCapturePermission().status == .authorized else {
             throw XCTSkip("「システム音声の録音」が許可されていないためスキップ")
@@ -74,6 +107,15 @@ final class IntegrationTests: XCTestCase {
     }
 
     // MARK: Helpers
+
+    /// Polls for up to 5 s, letting the main queue run Core Audio listener callbacks in between.
+    private func waitUntil(_ what: String, _ condition: () -> Bool) async throws {
+        for _ in 0..<50 {
+            if condition() { return }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTFail("timed out waiting: \(what)")
+    }
 
     private func startAfplay(system: CoreAudioSystem) async throws -> AudioProcess {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("audiorouting-tone-\(UUID().uuidString).wav")
