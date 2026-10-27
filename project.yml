@@ -14,7 +14,7 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     # Local self-signed certificate (login keychain). A stable identity keeps the
     # "System Audio Recording" permission across rebuilds; ad-hoc signing lost it every build.
-    # Bundle ID and distribution signing still wait on the distribution decision.
+    # Local use only (decided 2026-10-27); bundle ID local.audiorouting.AudioRouting.
     CODE_SIGN_IDENTITY: "AudioRouting Local Signing"
     CODE_SIGN_STYLE: Manual
     DEVELOPMENT_TEAM: ""
