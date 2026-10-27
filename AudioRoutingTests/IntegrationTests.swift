@@ -87,8 +87,12 @@ final class IntegrationTests: XCTestCase {
         router.stop()
         router.stop() // second stop is a no-op
 
-        XCTAssertEqual(AudioDiagnostics.tapCount(), baselineTaps, "process tap leaked")
-        XCTAssertEqual(AudioDiagnostics.ownAggregateCount(), baselineAggregates, "aggregate device leaked")
+        XCTAssertEqual(router.teardownErrors.map(\.description), [])
+        // The HAL may update its object lists shortly after the destroy calls return.
+        let cleanedUp = await AudioDiagnostics.waitUntil(seconds: 3) {
+            AudioDiagnostics.counts() == (baselineTaps, baselineAggregates)
+        }
+        XCTAssertTrue(cleanedUp, "tap or aggregate leaked: \(AudioDiagnostics.counts()) vs \(baselineTaps)/\(baselineAggregates)")
     }
 
     func testRouterToMissingDeviceLeavesNothingBehind() throws {

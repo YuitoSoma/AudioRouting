@@ -103,8 +103,14 @@ enum SelfTest {
         if let router = try? ProcessRouter(bundleID: "self-test", processObjectIDs: [process.objectID], device: missing) {
             router.stop()
         }
-        report.check("missing device leaves nothing behind",
-                     AudioDiagnostics.tapCount() == baselineTaps && AudioDiagnostics.ownAggregateCount() == baselineAggregates)
+        let settled = await AudioDiagnostics.waitUntil(seconds: 3) {
+            AudioDiagnostics.counts() == (baselineTaps, baselineAggregates)
+        }
+        report.check("missing device leaves nothing behind", settled)
+
+        // This process started with no taps or aggregates, so everything must be gone now.
+        let final = AudioDiagnostics.counts()
+        report.check("no taps or aggregates left at the end", final == (0, 0), "\(final.taps)/\(final.aggregates)")
     }
 
     private static func checkRoute(process: AudioProcess, device: AudioOutputDevice, isDefault: Bool, report: inout Report) async {
@@ -129,8 +135,15 @@ enum SelfTest {
         report.check("\(label): audio reaches device", gotSignal, String(format: "peak %.4f", router.meter.peak))
 
         router.stop()
-        report.check("\(label): cleaned up",
-                     AudioDiagnostics.tapCount() == baselineTaps && AudioDiagnostics.ownAggregateCount() == baselineAggregates)
+        report.check("\(label): teardown calls succeeded", router.teardownErrors.isEmpty,
+                     router.teardownErrors.map(\.description).joined(separator: ", "))
+        let countsRightAfterStop = AudioDiagnostics.counts()
+        let cleanedUp = await AudioDiagnostics.waitUntil(seconds: 3) {
+            AudioDiagnostics.counts() == (baselineTaps, baselineAggregates)
+        }
+        let after = AudioDiagnostics.counts()
+        report.check("\(label): cleaned up", cleanedUp,
+                     "baseline \(baselineTaps)/\(baselineAggregates), right after stop \(countsRightAfterStop.taps)/\(countsRightAfterStop.aggregates), after wait \(after.taps)/\(after.aggregates) (taps/aggregates)")
     }
 }
 
@@ -153,6 +166,10 @@ enum AudioDiagnostics {
             ((try? CoreAudioProperty.string($0, kAudioDevicePropertyDeviceUID)) ?? "")
                 .hasPrefix(AudioRoutingConstants.aggregateUIDPrefix)
         }.count
+    }
+
+    static func counts() -> (taps: Int, aggregates: Int) {
+        (tapCount(), ownAggregateCount())
     }
 
     static func startAfplay(_ file: URL, volume: String = "0.05") throws -> Process {

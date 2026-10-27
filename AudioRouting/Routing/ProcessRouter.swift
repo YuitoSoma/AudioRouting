@@ -71,22 +71,34 @@ final class ProcessRouter: ActiveAudioRoute {
         logger.info("routing \(self.bundleID) -> \(self.deviceUID)")
     }
 
+    /// Core Audio calls that failed during the last `stop()`, for diagnostics.
+    private(set) var teardownErrors: [CoreAudioError] = []
+
     /// Safe to call more than once.
     func stop() {
+        teardownErrors = []
         if let ioProcID {
-            AudioDeviceStop(aggregateID, ioProcID)
-            AudioDeviceDestroyIOProcID(aggregateID, ioProcID)
+            record(AudioDeviceStop(aggregateID, ioProcID), "AudioDeviceStop")
+            record(AudioDeviceDestroyIOProcID(aggregateID, ioProcID), "AudioDeviceDestroyIOProcID")
             self.ioProcID = nil
         }
         if aggregateID != kAudioObjectUnknown {
-            AudioHardwareDestroyAggregateDevice(aggregateID)
+            record(AudioHardwareDestroyAggregateDevice(aggregateID), "AudioHardwareDestroyAggregateDevice")
             aggregateID = AudioObjectID(kAudioObjectUnknown)
         }
         if tapID != kAudioObjectUnknown {
-            AudioHardwareDestroyProcessTap(tapID)
+            record(AudioHardwareDestroyProcessTap(tapID), "AudioHardwareDestroyProcessTap")
             tapID = AudioObjectID(kAudioObjectUnknown)
         }
     }
+
+    private func record(_ status: OSStatus, _ operation: String) {
+        guard status != noErr else { return }
+        let error = CoreAudioError(status: status, operation: operation)
+        teardownErrors.append(error)
+        logger.error("\(self.bundleID): \(error)")
+    }
+
 
     /// Built outside the main actor on purpose: a closure written inside this @MainActor class
     /// would be main-actor isolated, and Swift 6 traps when the HAL calls it on its IO thread.
