@@ -63,11 +63,9 @@ final class ProcessRouter: ActiveAudioRoute {
                   "AudioHardwareCreateAggregateDevice")
 
         let skipInputBuffers = Self.inputStreamCount(of: device.objectID)
-        let meter = meter
-        try check(AudioDeviceCreateIOProcIDWithBlock(&ioProcID, aggregateID, ioQueue) { _, input, _, output, _ in
-            AudioBufferCopy.copy(from: input, to: output, skipInputBuffers: skipInputBuffers)
-            meter.record(AudioBufferCopy.peak(of: output))
-        }, "AudioDeviceCreateIOProcIDWithBlock")
+        let ioBlock = Self.makeIOBlock(skipInputBuffers: skipInputBuffers, meter: meter)
+        try check(AudioDeviceCreateIOProcIDWithBlock(&ioProcID, aggregateID, ioQueue, ioBlock),
+                  "AudioDeviceCreateIOProcIDWithBlock")
 
         try check(AudioDeviceStart(aggregateID, ioProcID), "AudioDeviceStart")
         logger.info("routing \(self.bundleID) -> \(self.deviceUID)")
@@ -87,6 +85,15 @@ final class ProcessRouter: ActiveAudioRoute {
         if tapID != kAudioObjectUnknown {
             AudioHardwareDestroyProcessTap(tapID)
             tapID = AudioObjectID(kAudioObjectUnknown)
+        }
+    }
+
+    /// Built outside the main actor on purpose: a closure written inside this @MainActor class
+    /// would be main-actor isolated, and Swift 6 traps when the HAL calls it on its IO thread.
+    nonisolated static func makeIOBlock(skipInputBuffers: Int, meter: PeakMeter) -> AudioDeviceIOBlock {
+        { _, input, _, output, _ in
+            AudioBufferCopy.copy(from: input, to: output, skipInputBuffers: skipInputBuffers)
+            meter.record(AudioBufferCopy.peak(of: output))
         }
     }
 

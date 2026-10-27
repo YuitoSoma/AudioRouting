@@ -130,3 +130,44 @@ final class RenderTests: XCTestCase {
         XCTAssertEqual(AudioBufferCopy.peak(of: output.list.unsafeMutablePointer), 0)
     }
 }
+
+/// Core Audio and TCC call these blocks on their own threads. Swift 6 traps if a block is
+/// main-actor isolated, which crashed the app on its first route; these tests would crash too.
+final class OffMainThreadCallbackTests: XCTestCase {
+    func testIOBlockRunsOnAnIOThread() {
+        let meter = PeakMeter()
+        let block = ProcessRouter.makeIOBlock(skipInputBuffers: 0, meter: meter)
+        let done = expectation(description: "io block ran")
+
+        DispatchQueue(label: "test.io").async {
+            let input = AudioBufferList.allocate(maximumBuffers: 1)
+            let output = AudioBufferList.allocate(maximumBuffers: 1)
+            let inSamples = UnsafeMutablePointer<Float32>.allocate(capacity: 4)
+            let outSamples = UnsafeMutablePointer<Float32>.allocate(capacity: 4)
+            inSamples.update(from: [0.1, -0.5, 0.2, 0.3], count: 4)
+            input[0] = AudioBuffer(mNumberChannels: 2, mDataByteSize: 16, mData: inSamples)
+            output[0] = AudioBuffer(mNumberChannels: 2, mDataByteSize: 16, mData: outSamples)
+            var time = AudioTimeStamp()
+            block(&time, input.unsafePointer, &time, output.unsafeMutablePointer, &time)
+            inSamples.deallocate(); outSamples.deallocate()
+            free(input.unsafeMutablePointer); free(output.unsafeMutablePointer)
+            done.fulfill()
+        }
+
+        wait(for: [done], timeout: 5)
+        XCTAssertEqual(meter.peak, 0.5)
+    }
+
+    func testPermissionCallbackHopsToMain() {
+        let done = expectation(description: "completion on main")
+        let callback = TCCAudioCapturePermission.makeRequestCallback { granted in
+            XCTAssertTrue(Thread.isMainThread)
+            XCTAssertTrue(granted)
+            done.fulfill()
+        }
+
+        DispatchQueue.global().async { callback(true) }
+
+        wait(for: [done], timeout: 5)
+    }
+}

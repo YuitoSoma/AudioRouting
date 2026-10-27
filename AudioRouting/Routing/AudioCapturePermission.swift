@@ -46,7 +46,15 @@ final class TCCAudioCapturePermission: AudioCapturePermission {
             completion(false)
             return
         }
-        requestAccess(Self.service, nil) { granted in
+        requestAccess(Self.service, nil, Self.makeRequestCallback(completion))
+    }
+
+    /// TCC calls this on its own queue, so it must not be main-actor isolated (Swift 6 would trap);
+    /// it hops to the main queue itself.
+    nonisolated static func makeRequestCallback(
+        _ completion: @escaping @MainActor (Bool) -> Void
+    ) -> @convention(block) (Bool) -> Void {
+        { granted in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { completion(granted) }
             }
