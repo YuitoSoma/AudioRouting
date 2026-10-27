@@ -40,7 +40,7 @@ final class ProcessRouter: ActiveAudioRoute {
         tap.name = "AudioRouting \(bundleID)"
         tap.muteBehavior = .mutedWhenTapped
         tap.isPrivate = true
-        try check(AudioHardwareCreateProcessTap(tap, &tapID), "AudioHardwareCreateProcessTap")
+        try call("AudioHardwareCreateProcessTap") { AudioHardwareCreateProcessTap(tap, &tapID) }
 
         let description: [String: Any] = [
             kAudioAggregateDeviceNameKey: "AudioRouting \(bundleID)",
@@ -59,15 +59,17 @@ final class ProcessRouter: ActiveAudioRoute {
                 ],
             ],
         ]
-        try check(AudioHardwareCreateAggregateDevice(description as CFDictionary, &aggregateID),
-                  "AudioHardwareCreateAggregateDevice")
+        try call("AudioHardwareCreateAggregateDevice") {
+            AudioHardwareCreateAggregateDevice(description as CFDictionary, &aggregateID)
+        }
 
         let skipInputBuffers = Self.inputStreamCount(of: device.objectID)
         let ioBlock = Self.makeIOBlock(skipInputBuffers: skipInputBuffers, meter: meter)
-        try check(AudioDeviceCreateIOProcIDWithBlock(&ioProcID, aggregateID, ioQueue, ioBlock),
-                  "AudioDeviceCreateIOProcIDWithBlock")
+        try call("AudioDeviceCreateIOProcIDWithBlock") {
+            AudioDeviceCreateIOProcIDWithBlock(&ioProcID, aggregateID, ioQueue, ioBlock)
+        }
 
-        try check(AudioDeviceStart(aggregateID, ioProcID), "AudioDeviceStart")
+        try call("AudioDeviceStart") { AudioDeviceStart(aggregateID, ioProcID) }
         logger.info("routing \(self.bundleID) -> \(self.deviceUID)")
     }
 
@@ -78,26 +80,39 @@ final class ProcessRouter: ActiveAudioRoute {
     func stop() {
         teardownErrors = []
         if let ioProcID {
-            record(AudioDeviceStop(aggregateID, ioProcID), "AudioDeviceStop")
-            record(AudioDeviceDestroyIOProcID(aggregateID, ioProcID), "AudioDeviceDestroyIOProcID")
+            record("AudioDeviceStop") { AudioDeviceStop(aggregateID, ioProcID) }
+            record("AudioDeviceDestroyIOProcID") { AudioDeviceDestroyIOProcID(aggregateID, ioProcID) }
             self.ioProcID = nil
         }
         if aggregateID != kAudioObjectUnknown {
-            record(AudioHardwareDestroyAggregateDevice(aggregateID), "AudioHardwareDestroyAggregateDevice")
+            record("AudioHardwareDestroyAggregateDevice") { AudioHardwareDestroyAggregateDevice(aggregateID) }
             aggregateID = AudioObjectID(kAudioObjectUnknown)
         }
         if tapID != kAudioObjectUnknown {
-            record(AudioHardwareDestroyProcessTap(tapID), "AudioHardwareDestroyProcessTap")
+            record("AudioHardwareDestroyProcessTap") { AudioHardwareDestroyProcessTap(tapID) }
             tapID = AudioObjectID(kAudioObjectUnknown)
         }
     }
 
-    private func record(_ status: OSStatus, _ operation: String) {
+    private func record(_ operation: String, _ body: () -> OSStatus) {
+        let status = timed(operation, body)
         guard status != noErr else { return }
         let error = CoreAudioError(status: status, operation: operation)
         teardownErrors.append(error)
         logger.error("\(self.bundleID): \(error)")
     }
+
+    /// HAL calls run on the main actor; log any that stall so hangs can be traced.
+    private func timed(_ operation: String, _ body: () -> OSStatus) -> OSStatus {
+        let start = ContinuousClock.now
+        let status = body()
+        let elapsed = ContinuousClock.now - start
+        if elapsed > .milliseconds(200) {
+            logger.warning("\(self.bundleID): \(operation) took \(elapsed) (status \(status))")
+        }
+        return status
+    }
+
 
 
     /// Built outside the main actor on purpose: a closure written inside this @MainActor class
@@ -109,9 +124,11 @@ final class ProcessRouter: ActiveAudioRoute {
         }
     }
 
-    private func check(_ status: OSStatus, _ operation: String) throws {
+    private func call(_ operation: String, _ body: () -> OSStatus) throws {
+        let status = timed(operation, body)
         guard status == noErr else { throw CoreAudioError(status: status, operation: operation) }
     }
+
 
     private static func inputStreamCount(of device: AudioObjectID) -> Int {
         let streams: [AudioStreamID] = (try? CoreAudioProperty.array(

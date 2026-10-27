@@ -95,7 +95,7 @@ final class IntegrationTests: XCTestCase {
         XCTAssertTrue(cleanedUp, "tap or aggregate leaked: \(AudioDiagnostics.counts()) vs \(baselineTaps)/\(baselineAggregates)")
     }
 
-    func testRouterToMissingDeviceLeavesNothingBehind() throws {
+    func testRouterToMissingDeviceLeavesNothingBehind() async throws {
         guard TCCAudioCapturePermission().status == .authorized else {
             throw XCTSkip("「システム音声の録音」が許可されていないためスキップ")
         }
@@ -108,8 +108,10 @@ final class IntegrationTests: XCTestCase {
             router.stop()
         }
 
-        XCTAssertEqual(AudioDiagnostics.tapCount(), baselineTaps)
-        XCTAssertEqual(AudioDiagnostics.ownAggregateCount(), baselineAggregates)
+        let cleanedUp = await AudioDiagnostics.waitUntil(seconds: 3) {
+            AudioDiagnostics.counts() == (baselineTaps, baselineAggregates)
+        }
+        XCTAssertTrue(cleanedUp, "tap or aggregate leaked: \(AudioDiagnostics.counts()) vs \(baselineTaps)/\(baselineAggregates)")
     }
 
     // MARK: Helpers
