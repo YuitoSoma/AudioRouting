@@ -17,6 +17,20 @@ struct AudioProcess: Identifiable, Hashable, Sendable {
     /// Empty when Core Audio reports no bundle ID (e.g. command-line tools).
     let bundleID: String
     let isRunningOutput: Bool
+    /// The app this process plays audio for. For helpers (Safari's com.apple.WebKit.GPU,
+    /// Chrome Helper, ...) this is the parent app; otherwise the process itself.
+    let appBundleID: String
+    let appPID: pid_t
+
+    init(objectID: AudioObjectID, pid: pid_t, bundleID: String, isRunningOutput: Bool,
+         appBundleID: String? = nil, appPID: pid_t? = nil) {
+        self.objectID = objectID
+        self.pid = pid
+        self.bundleID = bundleID
+        self.isRunningOutput = isRunningOutput
+        self.appBundleID = appBundleID ?? bundleID
+        self.appPID = appPID ?? pid
+    }
 
     var id: AudioObjectID { objectID }
 }

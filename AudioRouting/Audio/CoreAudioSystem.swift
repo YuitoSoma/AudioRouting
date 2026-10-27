@@ -6,6 +6,7 @@ import os
 @MainActor
 final class CoreAudioSystem: AudioSystem {
     private let logger = Logger(subsystem: "local.audiorouting", category: "CoreAudioSystem")
+    private let ownerResolver = AppOwnerResolver()
 
     func outputDevices() -> [AudioOutputDevice] {
         let ids: [AudioObjectID]
@@ -41,14 +42,18 @@ final class CoreAudioSystem: AudioSystem {
             logger.error("process list: \(error)")
             return []
         }
-        return ids.compactMap { id in
+        let processes: [AudioProcess] = ids.compactMap { id in
             guard let pid: pid_t = try? CoreAudioProperty.value(id, kAudioProcessPropertyPID, initial: -1),
                   pid > 0
             else { return nil }
             let bundleID = (try? CoreAudioProperty.string(id, kAudioProcessPropertyBundleID)) ?? ""
             let running: UInt32 = (try? CoreAudioProperty.value(id, kAudioProcessPropertyIsRunningOutput, initial: 0)) ?? 0
-            return AudioProcess(objectID: id, pid: pid, bundleID: bundleID, isRunningOutput: running != 0)
+            let owner = ownerResolver.owner(pid: pid, bundleID: bundleID)
+            return AudioProcess(objectID: id, pid: pid, bundleID: bundleID, isRunningOutput: running != 0,
+                                appBundleID: owner.bundleID, appPID: owner.pid)
         }
+        ownerResolver.retain(pids: Set(processes.map(\.pid)))
+        return processes
     }
 
     func observeDevices(_ handler: @escaping @MainActor () -> Void) -> AudioObservation {

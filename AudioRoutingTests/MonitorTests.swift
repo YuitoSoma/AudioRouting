@@ -95,7 +95,7 @@ final class AudioProcessMonitorTests: XCTestCase {
             .mock(11, pid: 300, "", playing: true),
         ]
 
-        let apps = AudioProcessMonitor.groupByBundleID(processes, appName: { $0.bundleID })
+        let apps = AudioProcessMonitor.groupByApp(processes, appName: { $0.bundleID })
 
         XCTAssertEqual(apps.count, 1)
         XCTAssertEqual(apps[0].processes.map(\.pid), [200, 201])
@@ -121,5 +121,57 @@ final class AudioProcessMonitorTests: XCTestCase {
         XCTAssertTrue(monitor.apps.isEmpty)
 
         XCTAssertEqual(changes, 3)
+    }
+
+    func testHelpersAreGroupedUnderTheirParentApp() {
+        let processes: [AudioProcess] = [
+            AudioProcess(objectID: 10, pid: 300, bundleID: "com.apple.WebKit.GPU", isRunningOutput: true,
+                         appBundleID: "com.apple.Safari", appPID: 200),
+            AudioProcess(objectID: 11, pid: 200, bundleID: "com.apple.Safari", isRunningOutput: false),
+            AudioProcess(objectID: 12, pid: 400, bundleID: "com.google.Chrome.helper", isRunningOutput: true,
+                         appBundleID: "com.google.Chrome", appPID: 401),
+        ]
+
+        let apps = AudioProcessMonitor.groupByApp(processes, appName: { "name of \($0.pid)" })
+
+        XCTAssertEqual(apps.map(\.bundleID), ["com.apple.Safari", "com.google.Chrome"], "sorted by name")
+        let safari = apps.first { $0.bundleID == "com.apple.Safari" }
+        XCTAssertEqual(safari?.processes.map(\.objectID), [11, 10])
+        XCTAssertEqual(safari?.name, "name of 200", "named after the app, not the helper")
+        XCTAssertEqual(safari?.isPlaying, true, "playing because its helper is")
+        let chrome = apps.first { $0.bundleID == "com.google.Chrome" }
+        XCTAssertEqual(chrome?.name, "name of 400", "falls back to a helper when the app itself has no audio client")
+    }
+
+    func testExcludesHelpersOfOwnApp() {
+        let system = MockAudioSystem()
+        system.processes = [AudioProcess(objectID: 10, pid: 500, bundleID: "x.helper", isRunningOutput: true,
+                                         appBundleID: "local.audiorouting.AudioRouting", appPID: 999)]
+
+        XCTAssertTrue(makeMonitor(system).processes.isEmpty)
+    }
+}
+
+final class AppOwnerResolverTests: XCTestCase {
+    func testOutermostAppBundlePath() {
+        XCTAssertEqual(
+            AppOwnerResolver.outermostAppBundlePath(containing:
+                "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Helpers/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper"),
+            "/Applications/Google Chrome.app")
+        XCTAssertEqual(AppOwnerResolver.outermostAppBundlePath(containing: "/Applications/Music.app/Contents/MacOS/Music"),
+                       "/Applications/Music.app")
+        XCTAssertNil(AppOwnerResolver.outermostAppBundlePath(containing:
+            "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/Contents/MacOS/com.apple.WebKit.GPU"))
+        XCTAssertNil(AppOwnerResolver.outermostAppBundlePath(containing: "/usr/bin/afplay"))
+    }
+
+    @MainActor
+    func testResolvesAnAppToItselfAndSkipsToolsWithoutBundleID() {
+        let resolver = AppOwnerResolver()
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let ownID = Bundle.main.bundleIdentifier ?? ""
+
+        XCTAssertEqual(resolver.owner(pid: pid, bundleID: ownID), .init(bundleID: ownID, pid: pid))
+        XCTAssertEqual(resolver.owner(pid: 12345, bundleID: ""), .init(bundleID: "", pid: 12345))
     }
 }

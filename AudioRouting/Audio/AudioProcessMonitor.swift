@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import Observation
 
-/// Audio processes grouped under one bundle ID.
+/// Audio processes grouped under the app they play for (helpers are folded into their parent app).
 struct AudioApp: Identifiable, Hashable, Sendable {
     let bundleID: String
     let name: String
@@ -44,7 +44,7 @@ final class AudioProcessMonitor {
     /// Apps with a bundle ID, sorted by name. Processes without a bundle ID are left out
     /// because settings are keyed by bundle ID.
     var apps: [AudioApp] {
-        Self.groupByBundleID(processes, appName: appName)
+        Self.groupByApp(processes, appName: appName)
     }
 
     var playingApps: [AudioApp] {
@@ -52,22 +52,24 @@ final class AudioProcessMonitor {
     }
 
     func refresh() {
-        let newProcesses = system.audioProcesses().filter { $0.pid != ownPID }
+        let newProcesses = system.audioProcesses().filter { $0.pid != ownPID && $0.appPID != ownPID }
         guard newProcesses != processes else { return }
         processes = newProcesses
         onChange?()
     }
 
-    static func groupByBundleID(_ processes: [AudioProcess], appName: (AudioProcess) -> String) -> [AudioApp] {
-        Dictionary(grouping: processes.filter { !$0.bundleID.isEmpty }, by: \.bundleID)
+    static func groupByApp(_ processes: [AudioProcess], appName: (AudioProcess) -> String) -> [AudioApp] {
+        Dictionary(grouping: processes.filter { !$0.appBundleID.isEmpty }, by: \.appBundleID)
             .map { bundleID, group in
                 let sorted = group.sorted { $0.pid < $1.pid }
-                return AudioApp(bundleID: bundleID, name: appName(sorted[0]), processes: sorted)
+                // Name the group after the app itself, not after whichever helper sorts first.
+                let representative = sorted.first { $0.pid == $0.appPID } ?? sorted[0]
+                return AudioApp(bundleID: bundleID, name: appName(representative), processes: sorted)
             }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     nonisolated static func runningApplicationName(_ process: AudioProcess) -> String {
-        NSRunningApplication(processIdentifier: process.pid)?.localizedName ?? process.bundleID
+        NSRunningApplication(processIdentifier: process.appPID)?.localizedName ?? process.appBundleID
     }
 }
