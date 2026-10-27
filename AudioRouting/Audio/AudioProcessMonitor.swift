@@ -48,7 +48,7 @@ final class AudioProcessMonitor {
     }
 
     /// Apps with a bundle ID, sorted by name. Processes without a bundle ID are left out
-    /// because settings are keyed by bundle ID.
+    /// because settings are keyed by bundle ID, and so are daemons (not user apps).
     var apps: [AudioApp] {
         Self.groupByApp(processes, appName: appName)
     }
@@ -65,7 +65,7 @@ final class AudioProcessMonitor {
     }
 
     static func groupByApp(_ processes: [AudioProcess], appName: (AudioProcess) -> String) -> [AudioApp] {
-        Dictionary(grouping: processes.filter { !$0.appBundleID.isEmpty }, by: \.appBundleID)
+        Dictionary(grouping: processes.filter { !$0.appBundleID.isEmpty && $0.isUserApp }, by: \.appBundleID)
             .map { bundleID, group in
                 let sorted = group.sorted { $0.pid < $1.pid }
                 // Name the group after the app itself, not after whichever helper sorts first.

@@ -50,7 +50,7 @@ final class CoreAudioSystem: AudioSystem {
             let running: UInt32 = (try? CoreAudioProperty.value(id, kAudioProcessPropertyIsRunningOutput, initial: 0)) ?? 0
             let owner = ownerResolver.owner(pid: pid, bundleID: bundleID)
             return AudioProcess(objectID: id, pid: pid, bundleID: bundleID, isRunningOutput: running != 0,
-                                appBundleID: owner.bundleID, appPID: owner.pid)
+                                appBundleID: owner.bundleID, appPID: owner.pid, isUserApp: owner.isUserApp)
         }
         ownerResolver.retain(pids: Set(processes.map(\.pid)))
         return processes

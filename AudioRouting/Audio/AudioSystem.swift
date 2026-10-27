@@ -21,15 +21,19 @@ struct AudioProcess: Identifiable, Hashable, Sendable {
     /// Chrome Helper, ...) this is the parent app; otherwise the process itself.
     let appBundleID: String
     let appPID: pid_t
+    /// False for daemons and agents (assistantd, systemsoundserverd, ...), which are not
+    /// listed as apps.
+    let isUserApp: Bool
 
     init(objectID: AudioObjectID, pid: pid_t, bundleID: String, isRunningOutput: Bool,
-         appBundleID: String? = nil, appPID: pid_t? = nil) {
+         appBundleID: String? = nil, appPID: pid_t? = nil, isUserApp: Bool = true) {
         self.objectID = objectID
         self.pid = pid
         self.bundleID = bundleID
         self.isRunningOutput = isRunningOutput
         self.appBundleID = appBundleID ?? bundleID
         self.appPID = appPID ?? pid
+        self.isUserApp = isUserApp
     }
 
     var id: AudioObjectID { objectID }

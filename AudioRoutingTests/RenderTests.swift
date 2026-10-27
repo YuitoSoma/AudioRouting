@@ -136,7 +136,7 @@ final class RenderTests: XCTestCase {
 final class OffMainThreadCallbackTests: XCTestCase {
     func testIOBlockRunsOnAnIOThread() {
         let meter = PeakMeter()
-        let block = ProcessRouter.makeIOBlock(skipInputBuffers: 0, meter: meter)
+        nonisolated(unsafe) let block = ProcessRouter.makeIOBlock(skipInputBuffers: 0, meter: meter)
         let done = expectation(description: "io block ran")
 
         DispatchQueue(label: "test.io").async {
@@ -160,7 +160,7 @@ final class OffMainThreadCallbackTests: XCTestCase {
 
     func testPermissionCallbackHopsToMain() {
         let done = expectation(description: "completion on main")
-        let callback = TCCAudioCapturePermission.makeRequestCallback { granted in
+        nonisolated(unsafe) let callback = TCCAudioCapturePermission.makeRequestCallback { granted in
             XCTAssertTrue(Thread.isMainThread)
             XCTAssertTrue(granted)
             done.fulfill()

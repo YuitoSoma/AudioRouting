@@ -20,6 +20,9 @@ final class AppOwnerResolver {
     struct Owner: Equatable, Sendable {
         let bundleID: String
         let pid: pid_t
+        /// The owner is an app a user would route: a regular (Dock) app, or a menu bar app that is
+        /// not part of macOS. Daemons and system agents (Control Center, ...) are not.
+        var isUserApp = false
     }
 
     private typealias ResponsibleFunc = @convention(c) (pid_t) -> pid_t
@@ -34,7 +37,10 @@ final class AppOwnerResolver {
     func owner(pid: pid_t, bundleID: String) -> Owner {
         guard !bundleID.isEmpty else { return Owner(bundleID: bundleID, pid: pid) }
         if let cached = cache[pid] { return cached }
-        let owner = resolve(pid: pid, bundleID: bundleID)
+        var owner = resolve(pid: pid, bundleID: bundleID)
+        if let app = NSRunningApplication(processIdentifier: owner.pid) {
+            owner.isUserApp = Self.isUserApp(policy: app.activationPolicy, bundlePath: app.bundleURL?.path)
+        }
         cache[pid] = owner
         return owner
     }
@@ -61,6 +67,14 @@ final class AppOwnerResolver {
         return Owner(bundleID: bundleID, pid: pid)
     }
 
+    nonisolated static func isUserApp(policy: NSApplication.ActivationPolicy, bundlePath: String?) -> Bool {
+        switch policy {
+        case .regular: true
+        case .accessory: !(bundlePath ?? "/System/").hasPrefix("/System/")
+        default: false
+        }
+    }
+
     /// "/Applications/Google Chrome.app/Contents/Frameworks/.../Google Chrome Helper.app/Contents/MacOS/x"
     /// -> "/Applications/Google Chrome.app"
     nonisolated static func outermostAppBundlePath(containing path: String) -> String? {
@@ -73,6 +87,6 @@ final class AppOwnerResolver {
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
         let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
         guard length > 0 else { return nil }
-        return String(cString: buffer)
+        return String(decoding: buffer.prefix(Int(length)).map { UInt8(bitPattern: $0) }, as: UTF8.self)
     }
 }

@@ -143,6 +143,15 @@ final class AudioProcessMonitorTests: XCTestCase {
         XCTAssertEqual(chrome?.name, "name of 400", "falls back to a helper when the app itself has no audio client")
     }
 
+    func testLeavesOutDaemons() {
+        let processes: [AudioProcess] = [
+            AudioProcess(objectID: 10, pid: 300, bundleID: "com.apple.assistantd", isRunningOutput: true, isUserApp: false),
+            .mock(11, pid: 301, "com.spotify.client"),
+        ]
+
+        XCTAssertEqual(AudioProcessMonitor.groupByApp(processes, appName: { $0.bundleID }).map(\.bundleID), ["com.spotify.client"])
+    }
+
     func testExcludesHelpersOfOwnApp() {
         let system = MockAudioSystem()
         system.processes = [AudioProcess(objectID: 10, pid: 500, bundleID: "x.helper", isRunningOutput: true,
@@ -165,13 +174,21 @@ final class AppOwnerResolverTests: XCTestCase {
         XCTAssertNil(AppOwnerResolver.outermostAppBundlePath(containing: "/usr/bin/afplay"))
     }
 
+    func testUserAppPolicy() {
+        XCTAssertTrue(AppOwnerResolver.isUserApp(policy: .regular, bundlePath: "/System/Applications/Music.app"))
+        XCTAssertTrue(AppOwnerResolver.isUserApp(policy: .accessory, bundlePath: "/Applications/MenuPlayer.app"))
+        XCTAssertFalse(AppOwnerResolver.isUserApp(policy: .accessory, bundlePath: "/System/Library/CoreServices/ControlCenter.app"))
+        XCTAssertFalse(AppOwnerResolver.isUserApp(policy: .accessory, bundlePath: nil))
+        XCTAssertFalse(AppOwnerResolver.isUserApp(policy: .prohibited, bundlePath: "/Applications/Daemon.app"))
+    }
+
     @MainActor
     func testResolvesAnAppToItselfAndSkipsToolsWithoutBundleID() {
         let resolver = AppOwnerResolver()
         let pid = ProcessInfo.processInfo.processIdentifier
         let ownID = Bundle.main.bundleIdentifier ?? ""
 
-        XCTAssertEqual(resolver.owner(pid: pid, bundleID: ownID), .init(bundleID: ownID, pid: pid))
+        XCTAssertEqual(resolver.owner(pid: pid, bundleID: ownID), .init(bundleID: ownID, pid: pid, isUserApp: true))
         XCTAssertEqual(resolver.owner(pid: 12345, bundleID: ""), .init(bundleID: "", pid: 12345))
     }
 }
