@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MenuContentView: View {
     let router: RoutingManager
+    let loginItem: LoginItemController
 
     private static let audioCaptureSettingsURL = URL(
         string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture"
@@ -23,6 +24,10 @@ struct MenuContentView: View {
                 }
             }
         }
+
+        Divider()
+
+        loginItemSection
 
         Divider()
 
@@ -51,12 +56,33 @@ struct MenuContentView: View {
         }
     }
 
+    @ViewBuilder
+    private var loginItemSection: some View {
+        Toggle("ログイン時に起動", isOn: Binding(
+            get: { loginItem.isOn },
+            set: { loginItem.setEnabled($0) }
+        ))
+        if loginItem.status == .requiresApproval {
+            Button("ログイン項目をシステム設定で許可…") {
+                loginItem.openSystemSettings()
+            }
+        }
+        if let error = loginItem.lastError {
+            Text("ログイン時の起動を変更できませんでした: \(error)")
+        }
+    }
+
     private func appMenu(_ app: AudioApp) -> some View {
         let selection = Binding<String?>(
             get: { router.selectedDeviceUID(for: app.bundleID) },
             set: { router.setOutput(app: app.bundleID, deviceUID: $0) }
         )
         return Menu(menuTitle(app)) {
+            if case .failed(_, let message) = router.status(for: app.bundleID) {
+                Text("切り替えに失敗しました: \(message)")
+                Text("出力先をもう一度選ぶと再試行します")
+                Divider()
+            }
             Picker("出力先", selection: selection) {
                 Text("既定の出力").tag(String?.none)
                 ForEach(router.deviceMonitor.devices) { device in

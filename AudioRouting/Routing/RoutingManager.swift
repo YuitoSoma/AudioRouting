@@ -77,6 +77,8 @@ final class RoutingManager {
         }
         settings.routes[bundleID] = deviceUID
         store.save(settings)
+        // Choosing an output again is how the user retries a route that failed to start.
+        failedRoutes[bundleID] = nil
         if permission.status == .unknown {
             requestPermission()
         }
@@ -88,6 +90,13 @@ final class RoutingManager {
         settings.routes[bundleID] = nil
         store.save(settings)
         reconcile()
+    }
+
+    /// Re-reads the permission and reconciles if it changed (granted or revoked in System Settings).
+    func refreshPermission() {
+        if permission.status != permissionStatus {
+            reconcile()
+        }
     }
 
     func requestPermission() {
@@ -129,6 +138,17 @@ final class RoutingManager {
         for route in plan.create where failedRoutes[route.bundleID] == nil {
             startRouter(route)
         }
+    }
+
+    /// coreaudiod restarted: every tap, aggregate and process object ID is gone. Drop the stale
+    /// routers and failures and build everything again from the settings.
+    func audioServiceRestarted() {
+        logger.notice("audio service restarted; rebuilding routes")
+        stopAll()
+        failedRoutes = [:]
+        deviceMonitor.restartObservation()
+        processMonitor.restartObservation()
+        reconcile()
     }
 
     /// Tears down every route (on quit). Settings are kept.

@@ -10,6 +10,7 @@ final class MockAudioSystem: AudioSystem {
 
     private var deviceHandlers: [Int: @MainActor () -> Void] = [:]
     private var processHandlers: [Int: @MainActor () -> Void] = [:]
+    private var restartHandlers: [Int: @MainActor () -> Void] = [:]
     private var nextToken = 0
 
     var deviceObserverCount: Int { deviceHandlers.count }
@@ -34,6 +35,16 @@ final class MockAudioSystem: AudioSystem {
             MainActor.assumeIsolated { self?.processHandlers[token] = nil }
         }
     }
+
+    func observeServiceRestart(_ handler: @escaping @MainActor () -> Void) -> AudioObservation {
+        let token = takeToken()
+        restartHandlers[token] = handler
+        return AudioObservation { [weak self] in
+            MainActor.assumeIsolated { self?.restartHandlers[token] = nil }
+        }
+    }
+
+    func notifyServiceRestart() { restartHandlers.values.forEach { $0() } }
 
     func notifyDevices() { deviceHandlers.values.forEach { $0() } }
     func notifyProcesses() { processHandlers.values.forEach { $0() } }
@@ -115,4 +126,26 @@ final class MemorySettingsStore: SettingsStore {
         stored = settings
         saveCount += 1
     }
+}
+
+@MainActor
+final class MockLoginItemService: LoginItemService {
+    struct Failure: Error {}
+
+    var status: LoginItemStatus = .disabled
+    var statusAfterRegister: LoginItemStatus = .enabled
+    var failNext = false
+    private(set) var openedSettings = false
+
+    func register() throws {
+        if failNext { failNext = false; throw Failure() }
+        status = statusAfterRegister
+    }
+
+    func unregister() throws {
+        if failNext { failNext = false; throw Failure() }
+        status = .disabled
+    }
+
+    func openSystemSettings() { openedSettings = true }
 }

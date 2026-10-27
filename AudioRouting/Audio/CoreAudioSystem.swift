@@ -64,6 +64,11 @@ final class CoreAudioSystem: AudioSystem {
         return AudioObservation { observations.forEach { $0.invalidate() } }
     }
 
+    func observeServiceRestart(_ handler: @escaping @MainActor () -> Void) -> AudioObservation {
+        CoreAudioProperty.listen(CoreAudioProperty.systemObject, kAudioHardwarePropertyServiceRestarted, handler: handler)
+            ?? AudioObservation {}
+    }
+
     func observeProcesses(_ handler: @escaping @MainActor () -> Void) -> AudioObservation {
         let observer = ProcessListObserver(handler: handler)
         return AudioObservation { observer.stop() }
@@ -117,7 +122,7 @@ private final class ProcessListObserver {
         )) ?? []
         let current = Set(ids)
         for (id, observations) in perProcess where !current.contains(id) {
-            observations.forEach { $0.invalidate() }
+            observations.forEach { $0.discard() }
             perProcess[id] = nil
         }
         for id in current where perProcess[id] == nil {

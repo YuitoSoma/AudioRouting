@@ -260,4 +260,60 @@ final class RoutingManagerTests: XCTestCase {
         XCTAssertTrue(factory.running.isEmpty)
         XCTAssertEqual(manager.permissionStatus, .denied)
     }
+
+    // MARK: Retry, permission changes, service restart
+
+    func testChoosingOutputAgainRetriesAFailedRoute() {
+        factory.failingDeviceUIDs = ["headphones"]
+        let manager = makeManager()
+        manager.setOutput(app: "com.spotify.client", deviceUID: "headphones")
+        XCTAssertTrue(factory.started.isEmpty)
+
+        factory.failingDeviceUIDs = []
+        manager.setOutput(app: "com.spotify.client", deviceUID: "headphones")
+
+        XCTAssertEqual(factory.running.map(\.deviceUID), ["headphones"])
+        XCTAssertEqual(manager.status(for: "com.spotify.client"), .routed(deviceUID: "headphones"))
+    }
+
+    func testPermissionGrantedLaterIsPickedUpByRefresh() {
+        permission = MockPermission(.denied)
+        store.stored = AppRoutingSettings(routes: ["com.spotify.client": "headphones"])
+        let manager = makeManager()
+        XCTAssertTrue(factory.started.isEmpty)
+
+        manager.refreshPermission()
+        XCTAssertTrue(factory.started.isEmpty, "nothing changed yet")
+
+        permission.status = .authorized
+        manager.refreshPermission()
+
+        XCTAssertEqual(manager.permissionStatus, .authorized)
+        XCTAssertEqual(factory.running.map(\.deviceUID), ["headphones"])
+    }
+
+    func testServiceRestartRebuildsRoutesEvenWithSameObjectIDs() {
+        let manager = makeManager()
+        manager.setOutput(app: "com.spotify.client", deviceUID: "headphones")
+        let before = factory.started[0]
+
+        manager.audioServiceRestarted()
+
+        XCTAssertTrue(before.isStopped)
+        XCTAssertEqual(factory.running.count, 1)
+        XCTAssertFalse(factory.running[0] === before)
+        XCTAssertEqual(system.deviceObserverCount, 1, "monitors re-subscribed without piling up observers")
+        XCTAssertEqual(system.processObserverCount, 1)
+    }
+
+    func testServiceRestartClearsFailures() {
+        factory.failingDeviceUIDs = ["headphones"]
+        let manager = makeManager()
+        manager.setOutput(app: "com.spotify.client", deviceUID: "headphones")
+
+        factory.failingDeviceUIDs = []
+        manager.audioServiceRestarted()
+
+        XCTAssertEqual(factory.running.map(\.deviceUID), ["headphones"])
+    }
 }

@@ -35,10 +35,16 @@ final class AudioProcessMonitor {
         self.system = system
         self.ownPID = ownPID
         self.appName = appName
-        refresh()
+        restartObservation()
+    }
+
+    /// (Re)subscribes to Core Audio change notifications and refreshes, e.g. after coreaudiod restarted.
+    func restartObservation() {
+        observation = nil
         observation = system.observeProcesses { [weak self] in
             self?.refresh()
         }
+        refresh()
     }
 
     /// Apps with a bundle ID, sorted by name. Processes without a bundle ID are left out

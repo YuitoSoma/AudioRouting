@@ -48,6 +48,12 @@ final class AudioObservation {
         cancel = nil
     }
 
+    /// Forgets the subscription without removing it, for objects that no longer exist
+    /// (removing a listener from a dead Core Audio object only logs an error).
+    func discard() {
+        cancel = nil
+    }
+
     deinit {
         invalidate()
     }
@@ -65,6 +71,8 @@ protocol AudioSystem: AnyObject {
     func observeDevices(_ handler: @escaping @MainActor () -> Void) -> AudioObservation
     /// Process list changed or a process started/stopped playing.
     func observeProcesses(_ handler: @escaping @MainActor () -> Void) -> AudioObservation
+    /// coreaudiod restarted (crash or `killall coreaudiod`); all audio object IDs are invalid.
+    func observeServiceRestart(_ handler: @escaping @MainActor () -> Void) -> AudioObservation
 }
 
 enum AudioRoutingConstants {

@@ -16,10 +16,16 @@ final class AudioDeviceMonitor {
 
     init(system: AudioSystem) {
         self.system = system
-        refresh()
+        restartObservation()
+    }
+
+    /// (Re)subscribes to Core Audio change notifications and refreshes, e.g. after coreaudiod restarted.
+    func restartObservation() {
+        observation = nil
         observation = system.observeDevices { [weak self] in
             self?.refresh()
         }
+        refresh()
     }
 
     var deviceUIDs: Set<String> { Set(devices.map(\.uid)) }

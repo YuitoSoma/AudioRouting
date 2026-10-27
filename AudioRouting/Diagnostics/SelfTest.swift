@@ -85,6 +85,11 @@ enum SelfTest {
         }
 
         let monitor = AudioProcessMonitor(system: system)
+        for app in monitor.apps {
+            let helpers = app.processes.filter { $0.bundleID != app.bundleID }.map(\.bundleID)
+            report.note("app \(app.name) [\(app.bundleID)]\(app.isPlaying ? " playing" : "")"
+                        + (helpers.isEmpty ? "" : " helpers: \(Set(helpers).sorted().joined(separator: ", "))"))
+        }
         let pid = player.processIdentifier
         let seen = await AudioDiagnostics.waitUntil { monitor.processes.contains { $0.pid == pid && $0.isRunningOutput } }
         report.check("AudioProcessMonitor sees afplay playing", seen)
