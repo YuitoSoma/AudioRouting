@@ -12,8 +12,10 @@ settings:
     ARCHS: arm64
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
-    # Provisional: bundle ID and signing wait on the distribution decision.
-    CODE_SIGN_IDENTITY: "-"
+    # Local self-signed certificate (login keychain). A stable identity keeps the
+    # "System Audio Recording" permission across rebuilds; ad-hoc signing lost it every build.
+    # Bundle ID and distribution signing still wait on the distribution decision.
+    CODE_SIGN_IDENTITY: "AudioRouting Local Signing"
     CODE_SIGN_STYLE: Manual
     DEVELOPMENT_TEAM: ""
 
